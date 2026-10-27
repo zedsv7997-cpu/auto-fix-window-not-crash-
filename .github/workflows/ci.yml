@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+      - run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: autofix-windows-x64
+          path: target/release/autofix.exe
+      # Chạy quét thật trên Windows (chỉ đọc, không --fix) để kiểm tra các script PowerShell/WMI.
+      - name: Smoke test (scan only)
+        timeout-minutes: 45
+        run: |
+          .\target\release\autofix.exe --log scan.log
+          if ($LASTEXITCODE -eq 2) { throw "autofix exited with code 2" }
+          if (Select-String -Path scan.log -Pattern '\]\s+! ' -Quiet) { throw "A check failed to run, see output above" }
+          exit 0
