@@ -21,11 +21,19 @@ jobs:
         with:
           name: autofix-windows-x64
           path: target/release/autofix.exe
-      # Chạy quét thật trên Windows (chỉ đọc, không --fix) để kiểm tra các script PowerShell/WMI.
+      # Mở cửa sổ thật trên Windows: phải còn chạy sau 15 giây (không crash).
+      - name: Smoke test (GUI starts)
+        run: |
+          $p = Start-Process -FilePath .\target\release\autofix.exe -PassThru
+          Start-Sleep -Seconds 15
+          if ($p.HasExited) { Get-Content .\target\release\autofix.log -Encoding utf8; throw "GUI exited early with code $($p.ExitCode)" }
+          Stop-Process -Id $p.Id
+      # Quét thật trên Windows (chỉ đọc, không sửa) để kiểm tra các script PowerShell/WMI.
       - name: Smoke test (scan only)
         timeout-minutes: 45
         run: |
-          .\target\release\autofix.exe --log scan.log
-          if ($LASTEXITCODE -eq 2) { throw "autofix exited with code 2" }
-          if (Select-String -Path scan.log -Pattern '\]\s+! ' -Quiet) { throw "A check failed to run, see output above" }
+          $p = Start-Process -FilePath .\target\release\autofix.exe -ArgumentList '--scan' -Wait -PassThru
+          Get-Content .\target\release\autofix.log -Encoding utf8
+          if ($p.ExitCode -eq 2) { throw "autofix exited with code 2" }
+          if (Select-String -Path .\target\release\autofix.log -Pattern '\]\s+! ' -Quiet) { throw "A check failed to run, see log above" }
           exit 0

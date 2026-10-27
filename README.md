@@ -1,6 +1,6 @@
 # auto-fix-window-not-crash-
 
-Công cụ dòng lệnh (Rust) quét lỗi Windows thường gặp và sửa **an toàn**: mặc định chỉ quét, không đụng gì tới máy.
+App Windows (Rust, có giao diện) quét lỗi thường gặp và sửa **an toàn**: bấm **Quét** chỉ đọc, không thay đổi gì; chỉ khi bấm **Sửa** mới sửa các mục bạn đã tick.
 
 ## Quét những gì
 
@@ -19,11 +19,11 @@ Công cụ dòng lệnh (Rust) quét lỗi Windows thường gặp và sửa **a
 
 ## An toàn
 
-- Không có `--fix` thì **chỉ quét và báo cáo**.
-- Có `--fix`: tạo **điểm khôi phục (System Restore)** trước khi sửa; không tạo được thì hỏi, mặc định là dừng.
-- DISM, sfc, đặt lại Windows Update, chkdsk: **luôn hỏi `[y/N]`** từng bước (mặc định Không).
+- **Quét** chỉ đọc, không thay đổi gì.
+- **Sửa**: tạo **điểm khôi phục (System Restore)** trước; không tạo được thì hỏi lại, mặc định là dừng.
+- Bước rủi ro (DISM, sfc, đặt lại Windows Update, chkdsk) có dấu ⚠ và **mặc định không được chọn**: chỉ chạy khi bạn tự tick, và còn một hộp thoại xác nhận cuối.
 - Không bao giờ sửa boot, driver hay ghi registry. Đặt lại Windows Update chỉ **đổi tên** thư mục `SoftwareDistribution`, không xoá.
-- Windows đang chờ khởi động lại thì bỏ qua DISM/sfc/Windows Update.
+- Windows đang chờ khởi động lại thì khoá DISM/sfc/Windows Update.
 - Ổ cứng báo sắp hỏng thì **không** hẹn chkdsk (tránh làm hỏng thêm).
 - chkdsk chỉ được hẹn ở lần khởi động sau, không gỡ ổ khi đang dùng.
 - Xoá file tạm: chỉ file cũ hơn 7 ngày trong `%TEMP%` và `C:\Windows\Temp`, bỏ qua file đang dùng và symlink/junction.
@@ -32,24 +32,16 @@ Công cụ dòng lệnh (Rust) quét lỗi Windows thường gặp và sửa **a
 ## Tải / build
 
 - Tải sẵn: tab **Actions** → lần chạy mới nhất → artifact `autofix-windows-x64` (chứa `autofix.exe`).
-- Tự build (Windows, đã cài [Rust](https://rustup.rs)):
+- Tự build (Windows, đã cài [Rust](https://rustup.rs)): `cargo build --release` → `target\release\autofix.exe`.
 
-```powershell
-cargo build --release
-# file: target\release\autofix.exe
-```
+## Dùng
 
-## Chạy
+1. Bấm đúp `autofix.exe` → Windows hỏi quyền Admin (UAC) → chọn **Yes**.
+2. Bấm **Quét** (sfc có thể mất 10–20 phút).
+3. Xem danh sách vấn đề bên trái; tick các bước sửa muốn chạy ở cột bên phải.
+4. Bấm **Sửa ... mục đã chọn** → xác nhận. Xong thì khởi động lại máy nếu app nhắc, rồi **Quét** lại.
 
-Mở **PowerShell bằng quyền Administrator** (chuột phải → *Run as administrator*), vào thư mục chứa `autofix.exe`:
-
-```powershell
-.\autofix.exe          # chỉ quét, báo cáo
-.\autofix.exe --fix    # quét rồi sửa (hỏi trước các bước rủi ro)
-.\autofix.exe --log D:\autofix.log   # đổi chỗ lưu log
-```
-
-Mã thoát: `0` không có lỗi / sửa xong, `1` có vấn đề hoặc có bước sửa lỗi, `2` thiếu quyền Admin hoặc không mở được log.
+Chạy tự động (không mở cửa sổ): `autofix.exe --scan` chỉ quét, ghi kết quả vào `autofix.log`; mã thoát `0` không có lỗi, `1` có vấn đề, `2` thiếu quyền Admin.
 
 ## Phát triển
 
@@ -58,4 +50,4 @@ cargo test                                               # test parser + logic (
 cargo clippy --all-targets --target x86_64-pc-windows-gnu -- -D warnings
 ```
 
-CI (`.github/workflows/ci.yml`, `windows-latest`): clippy, test, build `.exe`, upload artifact và chạy thử quét thật (không `--fix`).
+CI (`.github/workflows/ci.yml`, `windows-latest`): clippy, test, build `.exe`, upload artifact, mở thử cửa sổ và chạy thử quét thật (`--scan`).

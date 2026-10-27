@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use crate::checks::Fix;
-use crate::sys;
+use crate::{log, sys};
 
 /// Tách các bước bị chặn khi Windows đang chờ khởi động lại. Trả về (chạy, bỏ qua).
 pub fn plan(fixes: BTreeSet<Fix>, reboot_pending: bool) -> (Vec<Fix>, Vec<Fix>) {
@@ -51,7 +51,34 @@ try {
 finally { foreach ($name in $stopped) { Start-Service -Name $name -ErrorAction SilentlyContinue } }
 "#;
 
-pub fn apply(fix: &Fix) -> Result<String, String> {
+/// Chạy lần lượt các bước đã được người dùng chọn, ghi log từng bước.
+pub fn run_all(todo: &[Fix]) {
+    let mut failed = 0;
+    for fix in todo {
+        log::say(&format!("-> {}", fix.describe()));
+        match apply(fix) {
+            Ok(msg) => log::say(&format!("   OK: {msg}")),
+            Err(e) => {
+                failed += 1;
+                log::say(&format!("   LỖI: {e}"));
+            }
+        }
+    }
+    log::say(&format!(
+        "Sửa xong: {} bước thành công, {failed} bước lỗi.",
+        todo.len() - failed
+    ));
+    if todo
+        .iter()
+        .any(|f| matches!(f, Fix::ScheduleChkdsk(_) | Fix::SfcScannow | Fix::RestoreHealth))
+    {
+        log::say("Hãy khởi động lại máy, rồi bấm Quét để kiểm tra lại.");
+    } else {
+        log::say("Bấm Quét để kiểm tra lại.");
+    }
+}
+
+fn apply(fix: &Fix) -> Result<String, String> {
     match fix {
         Fix::StartService(name) => {
             let script = format!(
@@ -68,13 +95,18 @@ pub fn apply(fix: &Fix) -> Result<String, String> {
             });
             Ok(format!("Đã xoá {files} file, giải phóng {} MB.", bytes >> 20))
         }
-        Fix::RestoreHealth => match sys::run_visible("dism.exe", &["/Online", "/Cleanup-Image", "/RestoreHealth"])? {
-            Some(0) => Ok("DISM sửa xong.".into()),
-            code => Err(format!("DISM thoát với mã {code:?}.")),
-        },
+        Fix::RestoreHealth => {
+            let out = sys::run("dism.exe", &["/Online", "/Cleanup-Image", "/RestoreHealth"])?;
+            log::write(&format!("Output DISM:\n{}", out.stdout.trim()));
+            match out.code {
+                Some(0) => Ok(sys::last_line(&out.stdout).to_string()),
+                code => Err(format!("DISM thoát với mã {code:?}: {}", sys::last_line(&out.stdout))),
+            }
+        }
         Fix::SfcScannow => {
-            let code = sys::run_visible("sfc.exe", &["/scannow"])?;
-            Ok(format!("sfc chạy xong (mã {code:?}), xem kết luận của sfc ở trên."))
+            let out = sys::run("sfc.exe", &["/scannow"])?;
+            log::write(&format!("Output sfc /scannow:\n{}", out.stdout.trim()));
+            Ok(format!("sfc chạy xong: {}", sys::last_line(&out.stdout)))
         }
         Fix::ResetWindowsUpdate => sys::parse_status(&sys::powershell(RESET_UPDATE_SCRIPT)?)
             .map(|backup| format!("Đã đặt lại; thư mục cũ đổi tên thành {backup}.")),

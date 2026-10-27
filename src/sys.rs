@@ -1,6 +1,5 @@
-//! Chạy công cụ hệ thống, gọi PowerShell, đọc output và hỏi xác nhận.
+//! Chạy công cụ hệ thống, gọi PowerShell, đọc output, kiểm tra quyền Admin.
 
-use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
@@ -19,9 +18,16 @@ fn system_tool(rel: &str) -> PathBuf {
     PathBuf::from(root).join("System32").join(rel)
 }
 
-/// Chạy lệnh và thu output.
+/// Chạy lệnh (không hiện cửa sổ console) và thu output.
 pub fn run(tool: &str, args: &[&str]) -> Result<Output, String> {
-    let out = Command::new(system_tool(tool))
+    let mut cmd = Command::new(system_tool(tool));
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let out = cmd
         .args(args)
         .stdin(Stdio::null())
         .output()
@@ -31,18 +37,14 @@ pub fn run(tool: &str, args: &[&str]) -> Result<Output, String> {
         stdout: decode(&out.stdout),
         stderr: decode(&out.stderr),
     };
-    log::write(&format!("$ {tool} {} -> mã {:?}", args.join(" "), out.code));
+    let shown: String = args.join(" ").chars().take(120).collect();
+    log::write(&format!("$ {tool} {shown} -> mã {:?}", out.code));
     Ok(out)
 }
 
-/// Chạy lệnh và để output hiện thẳng ra màn hình (cho lệnh lâu như DISM, sfc).
-pub fn run_visible(tool: &str, args: &[&str]) -> Result<Option<i32>, String> {
-    let status = Command::new(system_tool(tool))
-        .args(args)
-        .status()
-        .map_err(|e| format!("không chạy được {tool}: {e}"))?;
-    log::write(&format!("$ {tool} {} -> mã {:?}", args.join(" "), status.code()));
-    Ok(status.code())
+/// Dòng cuối có nội dung (thường là kết luận của DISM/sfc, theo ngôn ngữ của Windows).
+pub fn last_line(text: &str) -> &str {
+    text.lines().map(str::trim).rfind(|l| !l.is_empty()).unwrap_or("")
 }
 
 /// Chạy script PowerShell (truyền qua -EncodedCommand để không lỗi dấu nháy), trả về stdout UTF-8.
@@ -70,7 +72,7 @@ pub fn ps_quote(s: &str) -> String {
 
 /// Đọc dòng kết quả cuối của script dạng `OK [chi tiết]` hoặc `FAILED <lý do>`.
 pub fn parse_status(out: &str) -> Result<String, String> {
-    let last = out.lines().map(str::trim).rfind(|l| !l.is_empty()).unwrap_or("");
+    let last = last_line(out);
     match last.split_once(' ').unwrap_or((last, "")) {
         ("OK", rest) => Ok(rest.trim().to_string()),
         ("FAILED", rest) => Err(rest.trim().to_string()),
@@ -113,20 +115,6 @@ fn base64(data: &[u8]) -> String {
     s
 }
 
-/// Hỏi có/không; mặc định là KHÔNG.
-pub fn confirm(question: &str) -> bool {
-    print!("{question} [y/N] ");
-    let _ = std::io::stdout().flush();
-    let mut line = String::new();
-    let yes = std::io::stdin().read_line(&mut line).is_ok() && is_yes(&line);
-    log::write(&format!("{question} -> {}", if yes { "có" } else { "không" }));
-    yes
-}
-
-fn is_yes(answer: &str) -> bool {
-    matches!(answer.trim().to_lowercase().as_str(), "y" | "yes" | "c" | "co" | "có")
-}
-
 #[cfg(windows)]
 pub fn is_admin() -> bool {
     // SAFETY: hàm Win32 không tham số, chỉ đọc token của tiến trình hiện tại.
@@ -135,6 +123,34 @@ pub fn is_admin() -> bool {
 
 #[cfg(not(windows))]
 pub fn is_admin() -> bool {
+    false
+}
+
+/// Mở lại chính chương trình với quyền Admin (Windows hiện hộp thoại UAC). Trả về false nếu bị huỷ.
+#[cfg(windows)]
+pub fn relaunch_as_admin() -> bool {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL};
+    let Ok(exe) = std::env::current_exe() else { return false };
+    let exe: Vec<u16> = exe.as_os_str().encode_wide().chain([0]).collect();
+    let verb: Vec<u16> = "runas\0".encode_utf16().collect();
+    let null = std::ptr::null();
+    // SAFETY: các chuỗi UTF-16 kết thúc bằng 0 và sống tới hết lời gọi.
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            exe.as_ptr(),
+            null,
+            null,
+            SW_SHOWNORMAL,
+        )
+    };
+    result as isize > 32
+}
+
+#[cfg(not(windows))]
+pub fn relaunch_as_admin() -> bool {
     false
 }
 
@@ -193,15 +209,5 @@ mod tests {
         );
         assert!(parse_status("").is_err());
         assert!(parse_status("OKAY").is_err());
-    }
-
-    #[test]
-    fn yes_answers() {
-        for a in ["y", "Y\n", "yes", "c", "có\r\n", " Co "] {
-            assert!(is_yes(a), "{a:?}");
-        }
-        for a in ["", "n", "no", "k", "yy"] {
-            assert!(!is_yes(a), "{a:?}");
-        }
     }
 }

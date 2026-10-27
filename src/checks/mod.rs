@@ -11,6 +11,8 @@ pub use reboot::reboot_pending;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+use crate::log;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Severity {
     Info,
@@ -101,7 +103,7 @@ pub trait Check {
 }
 
 /// Các bước kiểm tra, nhanh trước, chậm (sfc) sau.
-pub fn all() -> Vec<Box<dyn Check>> {
+fn all() -> Vec<Box<dyn Check>> {
     vec![
         Box::new(reboot::Reboot),
         Box::new(events::Events),
@@ -110,6 +112,30 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(integrity::ImageHealth),
         Box::new(integrity::Sfc),
     ]
+}
+
+/// Chạy mọi bước kiểm tra (chỉ đọc), ghi tiến độ và kết quả vào log. Vấn đề nặng nhất lên đầu.
+pub fn scan() -> Vec<Finding> {
+    let mut findings = vec![];
+    for check in all() {
+        log::say(&format!("Đang kiểm tra: {}...", check.name()));
+        match check.run() {
+            Ok(found) => findings.extend(found),
+            Err(e) => log::say(&format!("  ! Không kiểm tra được: {e}")),
+        }
+    }
+    findings.sort_by_key(|f| std::cmp::Reverse(f.severity));
+    log::say(&format!("Quét xong: {} vấn đề.", findings.len()));
+    for f in &findings {
+        log::write(&format!("[{}] {}", f.severity.label(), f.title));
+        if let Some(advice) = &f.advice {
+            log::write(&format!("    Gợi ý: {advice}"));
+        }
+        for fix in &f.fixes {
+            log::write(&format!("    Sửa được: {}", fix.describe()));
+        }
+    }
+    findings
 }
 
 /// Đọc output của `ConvertTo-Json -Compress` (dòng cuối): rỗng, một object hoặc một mảng.
