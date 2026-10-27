@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+      - run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: autofix-windows-x64
+          path: target/release/autofix.exe
+      # Mở cửa sổ thật trên Windows: phải còn chạy sau 15 giây (không crash).
+      - name: Smoke test (GUI starts)
+        run: |
+          $p = Start-Process -FilePath .\target\release\autofix.exe -PassThru
+          Start-Sleep -Seconds 15
+          if ($p.HasExited) { Get-Content .\target\release\autofix.log -Encoding utf8; throw "GUI exited early with code $($p.ExitCode)" }
+          Stop-Process -Id $p.Id
+      # Quét thật trên Windows (chỉ đọc, không sửa) để kiểm tra các script PowerShell/WMI.
+      - name: Smoke test (scan only)
+        timeout-minutes: 45
+        run: |
+          $p = Start-Process -FilePath .\target\release\autofix.exe -ArgumentList '--scan' -Wait -PassThru
+          Get-Content .\target\release\autofix.log -Encoding utf8
+          if ($p.ExitCode -eq 2) { throw "autofix exited with code 2" }
+          if (Select-String -Path .\target\release\autofix.log -Pattern '\]\s+! ' -Quiet) { throw "A check failed to run, see log above" }
+          exit 0

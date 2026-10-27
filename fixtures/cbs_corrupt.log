@@ -1,0 +1,6 @@
+2026-10-27 09:00:02, Info                  CSI    00000004 [SR] Verifying 100 components
+2026-10-27 09:00:02, Info                  CSI    00000005 [SR] Beginning Verify and Repair transaction
+2026-10-27 09:00:05, Info                  CSI    00000006 Hashes for file member [l:11]'notepad.exe' do not match actual file [l:11]'notepad.exe' :
+  Found: {l:32 b:VvFmJ2d1mWkW1k3Y2YbF6m3PZ0xR4b1aUe6n0VbKqJ8=} Expected: {l:32 b:9Hk1fZ2d3bX7Q0c4yP5n6M8rT1uW2vE3sA4dG5hJ6kL=}
+2026-10-27 09:00:05, Info                  CSI    00000007 [SR] Cannot verify component files for Microsoft-Windows-Notepad, version 10.0.26100.1, arch amd64, nonSxS, pkt {l:8 b:31bf3856ad364e35}, manifest is damaged (FALSE)
+2026-10-27 09:00:09, Info                  CSI    00000008 [SR] Verify complete
